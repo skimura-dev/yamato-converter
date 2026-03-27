@@ -105,6 +105,17 @@
     .parsed-item .field-missing { color: #e53e3e; }
     .add-entry-btn { border: 2px dashed #cbd5e0; background: none; border-radius: 8px; padding: 10px; width: 100%; cursor: pointer; color: #718096; font-size: 13px; margin-top: 8px; }
     .add-entry-btn:hover { border-color: #3182ce; color: #3182ce; background: #ebf8ff; }
+
+    /* 編集ボタン */
+    .edit-btn { border: 1px solid #cbd5e0; background: white; color: #4a5568; border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-weight: 600; }
+    .edit-btn:hover { background: #edf2f7; border-color: #a0aec0; }
+    .save-btn { border: none; background: #276227; color: white; border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-weight: 600; }
+    .save-btn:hover { background: #1e4a1e; }
+    .cancel-btn { border: 1px solid #cbd5e0; background: white; color: #718096; border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-weight: 600; }
+    .cancel-btn:hover { background: #edf2f7; }
+    .edit-field-grid { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; align-items: center; }
+    .edit-field-grid label { font-size: 12px; color: #718096; white-space: nowrap; }
+    .edit-field-grid input, .edit-field-grid select { padding: 4px 8px; border: 1px solid #cbd5e0; border-radius: 4px; font-size: 12px; font-family: inherit; width: 100%; }
   </style>
 </head>
 <body>
@@ -199,21 +210,6 @@ TEL：080-1234-5678
     <div class="stats" id="statsArea"></div>
   </div>
 
-  <!-- ② AI設定 -->
-  <div class="card" id="aiSettingsCard">
-    <div class="card-title">② AI解析設定（オプション）</div>
-    <div style="font-size:13px;color:#4a5568;margin-bottom:10px;">
-      Gemini APIキーを設定するとAIがどんな形式のテキストも自動解析します。<br>
-      <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#3182ce;">👉 無料でAPIキーを取得（Google AI Studio）</a>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;">
-      <input type="password" id="geminiApiKey" placeholder="AIzaSy..." style="flex:1;padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;" oninput="saveApiKey()">
-      <button class="btn btn-secondary" onclick="toggleKeyVisibility()" style="padding:8px 12px;font-size:13px;">👁</button>
-      <span id="aiStatus" style="font-size:12px;color:#718096;white-space:nowrap;"></span>
-    </div>
-    <div style="font-size:11px;color:#a0aec0;margin-top:6px;">キーはこのブラウザにのみ保存されます。外部には送信されません（Gemini API以外）。</div>
-  </div>
-
   <!-- ③ 設定 -->
   <div class="card">
     <div class="card-title">③ 送り主・請求先の設定</div>
@@ -241,6 +237,19 @@ TEL：080-1234-5678
       <div class="field-group full">
         <label>建物名・部屋番号</label>
         <input type="text" id="senderApartment" value="PORTAL POINT SHIBUYA 2F">
+      </div>
+      <div class="field-group full">
+        <label>送り状種類（一括）</label>
+        <select id="invoiceType" style="width:100%;padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;">
+          <option value="0">0 : 発払い</option>
+          <option value="3">3 : クロネコゆうメール</option>
+          <option value="4">4 : タイム</option>
+          <option value="5">5 : 着払い</option>
+          <option value="6">6 : 発払い（複数口）</option>
+          <option value="7">7 : クロネコゆうパケット</option>
+          <option value="8">8 : 宅急便コンパクト</option>
+          <option value="A">A : ネコポス</option>
+        </select>
       </div>
     </div>
     <div style="margin-top:16px">
@@ -316,6 +325,10 @@ const FIELD_LABELS = {
 // ============================================================
 // ユーティリティ
 // ============================================================
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function cleanAddress(s) {
   return String(s || '').replace(/\u2015/g,'-').replace(/\uff0d/g,'-').trim();
 }
@@ -465,6 +478,69 @@ function parseOneEntry(text) {
   return result;
 }
 
+function renderParsedItem(r, i) {
+  const addr = [r.prefecture, r.city, r.address1, r.address2].filter(Boolean).join('');
+  const effectiveProduct = r.product || '';
+  return `<div class="parsed-item" id="parsedItem${i}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+      <div class="item-header" style="margin-bottom:0">${i + 1}. ${escHtml(r.name || '（名前不明）')}</div>
+      <button class="edit-btn" onclick="editParsedItem(${i})">編集</button>
+    </div>
+    <div class="item-fields">
+      <span class="field-label">郵便番号</span><span class="${r.postal ? 'field-val' : 'field-missing'}">${escHtml(r.postal || '⚠️ 未検出')}</span>
+      <span class="field-label">住所</span><span class="${addr ? 'field-val' : 'field-missing'}">${escHtml(addr || '⚠️ 未検出')}</span>
+      <span class="field-label">電話番号</span><span class="field-val">${escHtml(r.phone || '—')}</span>
+      <span class="field-label">品名</span><span class="${effectiveProduct ? 'field-val' : 'field-missing'}">${escHtml(effectiveProduct || '—')}</span>
+    </div>
+  </div>`;
+}
+
+function editParsedItem(i) {
+  const r = textParsedRows[i];
+  const el = document.getElementById(`parsedItem${i}`);
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div class="item-header" style="margin-bottom:0">${i + 1}. 編集中</div>
+      <div style="display:flex;gap:6px;">
+        <button class="cancel-btn" onclick="cancelEditParsedItem(${i})">キャンセル</button>
+        <button class="save-btn" onclick="saveParsedItem(${i})">保存</button>
+      </div>
+    </div>
+    <div class="edit-field-grid">
+      <label>氏名</label><input id="ei_name${i}" value="${escHtml(r.name || '')}">
+      <label>郵便番号</label><input id="ei_postal${i}" value="${escHtml(r.postal || '')}">
+      <label>都道府県</label><input id="ei_pref${i}" value="${escHtml(r.prefecture || '')}">
+      <label>市区町村</label><input id="ei_city${i}" value="${escHtml(r.city || '')}">
+      <label>番地</label><input id="ei_addr1${i}" value="${escHtml(r.address1 || '')}">
+      <label>建物名等</label><input id="ei_addr2${i}" value="${escHtml(r.address2 || '')}">
+      <label>電話番号</label><input id="ei_phone${i}" value="${escHtml(r.phone || '')}">
+      <label>品名</label><input id="ei_product${i}" value="${escHtml(r.product || '')}">
+    </div>
+  `;
+}
+
+function saveParsedItem(i) {
+  const g = id => document.getElementById(id)?.value?.trim() || '';
+  textParsedRows[i] = {
+    ...textParsedRows[i],
+    name:       g(`ei_name${i}`),
+    postal:     g(`ei_postal${i}`),
+    prefecture: g(`ei_pref${i}`),
+    city:       g(`ei_city${i}`),
+    address1:   g(`ei_addr1${i}`),
+    address2:   g(`ei_addr2${i}`),
+    phone:      g(`ei_phone${i}`),
+    product:    g(`ei_product${i}`),
+  };
+  const el = document.getElementById(`parsedItem${i}`);
+  el.outerHTML = renderParsedItem(textParsedRows[i], i);
+}
+
+function cancelEditParsedItem(i) {
+  const el = document.getElementById(`parsedItem${i}`);
+  el.outerHTML = renderParsedItem(textParsedRows[i], i);
+}
+
 function addTextEntry() {
   const container = document.getElementById('textEntries');
   const idx = textEntryCount++;
@@ -486,61 +562,8 @@ function removeTextEntry(idx) {
   if (el) el.remove();
 }
 
-// ============================================================
-// Gemini API
-// ============================================================
-function saveApiKey() {
-  const key = document.getElementById('geminiApiKey').value.trim();
-  localStorage.setItem('geminiApiKey', key);
-  document.getElementById('aiStatus').textContent = key ? '✅ 設定済み' : '';
-  document.getElementById('aiStatus').style.color = key ? '#22543d' : '#718096';
-}
-
-function toggleKeyVisibility() {
-  const input = document.getElementById('geminiApiKey');
-  input.type = input.type === 'password' ? 'text' : 'password';
-}
-
-async function parseWithGemini(allText, bulkProduct) {
-  const apiKey = document.getElementById('geminiApiKey').value.trim();
-  if (!apiKey) return null;
-
-  const productHint = bulkProduct ? `品名は全員「${bulkProduct}」で固定。` : '品名はテキストから読み取る（なければ空文字）。';
-
-  const prompt = `以下のテキストから配送先の顧客情報を抽出してJSON配列で返してください。
-複数人いる場合はすべて抽出してください。${productHint}
-郵便番号はハイフンなし7桁に統一。電話番号はハイフンあり形式で。都道府県・市区町村・番地は分けて。
-
-返すJSONの形式（必ずこの形式のみ、説明文は不要）:
-[{"name":"氏名","postal":"郵便番号7桁","prefecture":"都道府県","city":"市区町村","address1":"番地","address2":"建物名や部屋番号","phone":"電話番号","product":"品名"}]
-
-テキスト:
-${allText}`;
-
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0, responseMimeType: 'application/json' }
-    })
-  });
-
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error?.message || `APIエラー: ${res.status}`);
-  }
-
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-  // JSON部分だけ抽出（```json ... ``` 対策）
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  return jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-}
-
-async function parseTextEntries() {
+function parseTextEntries() {
   const bulkProduct = document.getElementById('bulkProduct').value.trim();
-  const apiKey = document.getElementById('geminiApiKey').value.trim();
   const resultEl = document.getElementById('textParseResult');
 
   // 全テキストを収集
@@ -550,59 +573,21 @@ async function parseTextEntries() {
     const t = ta.value.trim();
     if (t) allTexts.push(t);
   }
-  const allText = allTexts.join('\n\n---\n\n');
 
-  if (!allText) {
+  if (!allTexts.length) {
     resultEl.innerHTML = '<div style="color:#e53e3e;font-size:13px">テキストを入力してください。</div>';
     return;
   }
 
-  let results = [];
-
-  // ── Gemini APIで解析
-  if (apiKey) {
-    resultEl.innerHTML = '<div style="color:#2a4365;font-size:13px;padding:10px;background:#bee3f8;border-radius:6px;">🤖 AIが解析中...</div>';
-    try {
-      const geminiResults = await parseWithGemini(allText, bulkProduct);
-      if (geminiResults && geminiResults.length > 0) {
-        results = geminiResults;
-        // 一括品名で上書き
-        if (bulkProduct) results.forEach(r => { r.product = bulkProduct; });
-      } else {
-        resultEl.innerHTML = '<div style="color:#e53e3e;font-size:13px">AIから結果を取得できませんでした。</div>';
-        return;
-      }
-    } catch (e) {
-      resultEl.innerHTML = `<div style="color:#e53e3e;font-size:13px;padding:10px;background:#fed7d7;border-radius:6px;">⚠️ Gemini APIエラー: ${e.message}<br>ルールベースで再解析します...</div>`;
-      // フォールバック
-      results = fallbackParse(allTexts, bulkProduct);
-    }
-  } else {
-    // ── ルールベースで解析（APIキーなし）
-    results = fallbackParse(allTexts, bulkProduct);
-  }
+  const results = fallbackParse(allTexts, bulkProduct);
 
   if (results.length === 0) {
     resultEl.innerHTML = '<div style="color:#e53e3e;font-size:13px">内容を認識できませんでした。</div>';
     return;
   }
 
-  // プレビュー表示
-  const method = apiKey ? '🤖 AI解析' : '⚡ 自動認識';
-  let html = `<div style="font-weight:600;font-size:13px;color:#22543d;margin-bottom:8px">${method}：${results.length}件を認識しました</div>`;
-  results.forEach((r, i) => {
-    const addr = [r.prefecture, r.city, r.address1, r.address2].filter(Boolean).join('');
-    const effectiveProduct = r.product || '';
-    html += `<div class="parsed-item">
-      <div class="item-header">${i + 1}. ${r.name || '（名前不明）'}</div>
-      <div class="item-fields">
-        <span class="field-label">郵便番号</span><span class="${r.postal ? 'field-val' : 'field-missing'}">${r.postal || '⚠️ 未検出'}</span>
-        <span class="field-label">住所</span><span class="${addr ? 'field-val' : 'field-missing'}">${addr || '⚠️ 未検出'}</span>
-        <span class="field-label">電話番号</span><span class="field-val">${r.phone || '—'}</span>
-        <span class="field-label">品名</span><span class="${effectiveProduct ? 'field-val' : 'field-missing'}">${effectiveProduct || '—'}</span>
-      </div>
-    </div>`;
-  });
+  let html = `<div style="font-weight:600;font-size:13px;color:#22543d;margin-bottom:8px">⚡ 自動認識：${results.length}件を認識しました</div>`;
+  results.forEach((r, i) => { html += renderParsedItem(r, i); });
   resultEl.innerHTML = html;
 
   textParsedRows = results;
@@ -822,7 +807,7 @@ function buildRows() {
     const r = new Array(YAMATO_HEADERS.length).fill('');
     const set = (name, val) => { const i = YAMATO_HEADERS.indexOf(name); if (i >= 0) r[i] = val; };
     set('お客様管理番号',            opts.order_no || '');
-    set('送り状種類',                '0');
+    set('送り状種類',                document.getElementById('invoiceType').value || '0');
     set('出荷予定日',                shipDate);
     set('お届け先電話番号',           cleanPhone(opts.phone || ''));
     set('お届け先郵便番号',           (opts.postal || '').replace(/-/g, ''));
@@ -932,13 +917,6 @@ function toggleDate() {
 document.addEventListener('DOMContentLoaded', () => {
   setupDropZone();
   document.getElementById('fixedDate').value = new Date().toISOString().split('T')[0];
-  // 保存済みAPIキーを復元
-  const savedKey = localStorage.getItem('geminiApiKey') || '';
-  if (savedKey) {
-    document.getElementById('geminiApiKey').value = savedKey;
-    document.getElementById('aiStatus').textContent = '✅ 設定済み';
-    document.getElementById('aiStatus').style.color = '#22543d';
-  }
 });
 </script>
 </body>
