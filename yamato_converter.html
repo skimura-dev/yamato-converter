@@ -147,23 +147,40 @@
 
     <!-- テキスト貼り付けモード -->
     <div id="textMode" class="hidden">
+
+      <!-- 品名 一括指定 -->
+      <div style="background:#fffbeb;border:1px solid #f6d860;border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:600;color:#744210;margin-bottom:6px;">📦 品名（全員共通・一括指定）</div>
+        <input type="text" id="bulkProduct" placeholder="例：Tシャツ　※空欄の場合は各自のテキストから読み取ります" style="width:100%;padding:8px 10px;border:1px solid #e2c94f;border-radius:6px;font-size:13px;">
+      </div>
+
       <div style="font-size:13px;color:#718096;margin-bottom:8px">
-        顧客情報をそのまま貼り付けてください。複数人いる場合は<strong>空行で区切って</strong>貼り付けるとまとめて変換できます。
+        どんな形式でも貼り付けてOKです。郵便番号・電話番号・都道府県・氏名を自動認識します。<br>
+        複数人いる場合は<strong>空行で区切って</strong>まとめて貼り付けできます。
       </div>
       <div id="textEntries">
         <div class="parsed-item" style="padding:0;border:none;background:none;">
-          <textarea class="paste-area" id="pasteInput0" placeholder="例：
+          <textarea class="paste-area" id="pasteInput0" placeholder="どんな形式でもOK。例：
+
+【形式1：ラベル＋値】
 本名
 菅原○○
 郵便番号
 006-0819
-都道府県
-北海道
-市町村区
-○○区○○
-町域・番地等
-○○-○○
+北海道 ○○区○○-○○
 電話番号
+080-1234-5678
+
+【形式2：コロン区切り】
+氏名：菅原○○
+郵便番号：006-0819
+住所：北海道○○区○○-○○
+TEL：080-1234-5678
+
+【形式3：そのままコピペ】
+菅原○○
+〒006-0819
+北海道○○区○○
 080-1234-5678"></textarea>
         </div>
       </div>
@@ -180,6 +197,21 @@
     <div class="card-title">② 形式の検出結果</div>
     <div id="detectionResult"></div>
     <div class="stats" id="statsArea"></div>
+  </div>
+
+  <!-- ② AI設定 -->
+  <div class="card" id="aiSettingsCard">
+    <div class="card-title">② AI解析設定（オプション）</div>
+    <div style="font-size:13px;color:#4a5568;margin-bottom:10px;">
+      Gemini APIキーを設定するとAIがどんな形式のテキストも自動解析します。<br>
+      <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#3182ce;">👉 無料でAPIキーを取得（Google AI Studio）</a>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="password" id="geminiApiKey" placeholder="AIzaSy..." style="flex:1;padding:8px 10px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;" oninput="saveApiKey()">
+      <button class="btn btn-secondary" onclick="toggleKeyVisibility()" style="padding:8px 12px;font-size:13px;">👁</button>
+      <span id="aiStatus" style="font-size:12px;color:#718096;white-space:nowrap;"></span>
+    </div>
+    <div style="font-size:11px;color:#a0aec0;margin-top:6px;">キーはこのブラウザにのみ保存されます。外部には送信されません（Gemini API以外）。</div>
   </div>
 
   <!-- ③ 設定 -->
@@ -343,47 +375,93 @@ function switchMode(mode) {
 
 // ラベル→フィールド名のマッピング
 const TEXT_LABEL_MAP = {
-  name:       ['本名','氏名','お名前','名前','姓名','宛名','受取人','氏名（漢字）','お届け先名'],
-  name_kana:  ['フリガナ','ふりがな','ｶﾅ','カナ','よみがな'],
+  name:       ['本名','氏名','お名前','名前','姓名','宛名','受取人','氏名（漢字）','お届け先名','お名前（漢字）','フルネーム'],
   postal:     ['郵便番号','郵便','zip','postal'],
-  prefecture: ['都道府県'],
-  city:       ['市町村区','市区町村','市区郡','区市町村','市'],
-  address1:   ['町域・番地等','町域','番地','丁目','住所','番地・建物名等'],
-  address2:   ['建物名','マンション','アパート','部屋番号','号室','建物名・部屋番号','マンション・建物名・部屋番号'],
-  phone:      ['電話番号','電話','TEL','tel','携帯番号','携帯'],
-  email:      ['メールアドレス','メール','email','e-mail'],
-  product:    ['商品名','品名','商品','注文商品'],
+  prefecture: ['都道府県','prefecture'],
+  city:       ['市町村区','市区町村','市区郡','区市町村','市町村','town','city'],
+  address1:   ['町域・番地等','町域','番地','丁目','住所','番地・建物名等','住所1','住所①','街道'],
+  address2:   ['建物名','マンション','アパート','部屋番号','号室','建物名・部屋番号','マンション・建物名・部屋番号','住所2','住所②'],
+  phone:      ['電話番号','電話','TEL','tel','携帯番号','携帯','mobile','phone'],
+  email:      ['メールアドレス','メール','email','e-mail','mail'],
+  product:    ['商品名','品名','商品','注文商品','アイテム'],
 };
+
+// 都道府県リスト（パターン認識用）
+const PREFS = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
 
 function parseOneEntry(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
   const result = {};
-  // ラベル行 → 次の行が値、のパターンで解析
+  const allLabels = Object.values(TEXT_LABEL_MAP).flat();
+
+  const isLabel = (s) => allLabels.some(l => s === l || s.startsWith(l + '：') || s.startsWith(l + ':'));
+
+  // ── パス1: ラベル認識（ラベル行→次行が値 / ラベル：値 形式）
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const nextLine = lines[i + 1] || '';
-    // このlineがラベルかどうか判定
-    let matched = false;
     for (const [field, labels] of Object.entries(TEXT_LABEL_MAP)) {
-      if (labels.some(l => line === l || line.startsWith(l + '：') || line.startsWith(l + ':'))) {
-        // コロン区切りで値が同じ行にある場合
-        const colonIdx = line.indexOf('：') >= 0 ? line.indexOf('：') : line.indexOf(':');
-        if (colonIdx >= 0) {
-          const val = line.slice(colonIdx + 1).trim();
-          if (val) { result[field] = val; matched = true; i--; break; }
-        }
-        // 次の行が別ラベルでなければ値として使う
-        const isNextLabel = nextLine && Object.values(TEXT_LABEL_MAP).flat()
-          .some(l => nextLine === l || nextLine.startsWith(l + '：') || nextLine.startsWith(l + ':'));
-        if (!isNextLabel && nextLine) {
-          result[field] = nextLine;
-          i++; // 値の行をスキップ
-        }
-        matched = true;
+      const matchedLabel = labels.find(l => line === l || line.startsWith(l + '：') || line.startsWith(l + ':'));
+      if (!matchedLabel) continue;
+      // 同一行にコロン＋値がある場合
+      const sep = line.indexOf('：') >= 0 ? '：' : ':';
+      const colonIdx = line.indexOf(sep);
+      if (colonIdx >= 0 && colonIdx < line.length - 1) {
+        const val = line.slice(colonIdx + 1).trim();
+        if (val && !result[field]) { result[field] = val; }
+        break;
+      }
+      // 次行を値として取得
+      const next = lines[i + 1] || '';
+      if (next && !isLabel(next) && !result[field]) {
+        result[field] = next;
+        i++;
+      }
+      break;
+    }
+  }
+
+  // ── パス2: パターンマッチで未検出フィールドを補完
+  for (const line of lines) {
+    // 〒マーク付き or 数字7桁の郵便番号
+    if (!result.postal) {
+      const m = line.match(/[〒〠]?\s*(\d{3})[ー\-－](\d{4})/);
+      if (m) { result.postal = m[1] + m[2]; continue; }
+      const m2 = line.match(/^(\d{7})$/);
+      if (m2) { result.postal = m2[1]; continue; }
+    }
+    // 電話番号（0から始まる10〜11桁）
+    if (!result.phone) {
+      const m = line.match(/0\d[\d\-ー－]{8,12}/);
+      if (m && m[0].replace(/\D/g,'').length >= 10) { result.phone = m[0]; continue; }
+    }
+    // 都道府県で始まる行 → 住所として分解
+    if (!result.prefecture || !result.address1) {
+      const pref = PREFS.find(p => line.startsWith(p));
+      if (pref) {
+        if (!result.prefecture) result.prefecture = pref;
+        const rest = line.slice(pref.length).trim();
+        if (rest && !result.address1) result.address1 = rest;
+        continue;
+      }
+    }
+  }
+
+  // ── パス3: 残った行から氏名を推測（ラベルなし・数字なし・短い行）
+  if (!result.name) {
+    for (const line of lines) {
+      // 郵便番号・電話・住所・メール・ラベルでない、2〜10文字の行を氏名候補に
+      if (line.length >= 2 && line.length <= 15 &&
+          !line.match(/\d/) &&
+          !line.match(/[@＠]/) &&
+          !line.match(/[県都道府]/) &&
+          !isLabel(line) &&
+          !PREFS.some(p => line.startsWith(p))) {
+        result.name = line;
         break;
       }
     }
   }
+
   return result;
 }
 
@@ -408,46 +486,143 @@ function removeTextEntry(idx) {
   if (el) el.remove();
 }
 
-function parseTextEntries() {
-  const results = [];
-  // 全テキストエリアを取得
+// ============================================================
+// Gemini API
+// ============================================================
+function saveApiKey() {
+  const key = document.getElementById('geminiApiKey').value.trim();
+  localStorage.setItem('geminiApiKey', key);
+  document.getElementById('aiStatus').textContent = key ? '✅ 設定済み' : '';
+  document.getElementById('aiStatus').style.color = key ? '#22543d' : '#718096';
+}
+
+function toggleKeyVisibility() {
+  const input = document.getElementById('geminiApiKey');
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+async function parseWithGemini(allText, bulkProduct) {
+  const apiKey = document.getElementById('geminiApiKey').value.trim();
+  if (!apiKey) return null;
+
+  const productHint = bulkProduct ? `品名は全員「${bulkProduct}」で固定。` : '品名はテキストから読み取る（なければ空文字）。';
+
+  const prompt = `以下のテキストから配送先の顧客情報を抽出してJSON配列で返してください。
+複数人いる場合はすべて抽出してください。${productHint}
+郵便番号はハイフンなし7桁に統一。電話番号はハイフンあり形式で。都道府県・市区町村・番地は分けて。
+
+返すJSONの形式（必ずこの形式のみ、説明文は不要）:
+[{"name":"氏名","postal":"郵便番号7桁","prefecture":"都道府県","city":"市区町村","address1":"番地","address2":"建物名や部屋番号","phone":"電話番号","product":"品名"}]
+
+テキスト:
+${allText}`;
+
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0, responseMimeType: 'application/json' }
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || `APIエラー: ${res.status}`);
+  }
+
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+  // JSON部分だけ抽出（```json ... ``` 対策）
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  return jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+}
+
+async function parseTextEntries() {
+  const bulkProduct = document.getElementById('bulkProduct').value.trim();
+  const apiKey = document.getElementById('geminiApiKey').value.trim();
+  const resultEl = document.getElementById('textParseResult');
+
+  // 全テキストを収集
   const textareas = document.querySelectorAll('[id^="pasteInput"]');
+  const allTexts = [];
   for (const ta of textareas) {
-    const text = ta.value.trim();
-    if (!text) continue;
-    // 空行で区切って複数エントリに分割
-    const blocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(b => b);
-    for (const block of blocks) {
-      const parsed = parseOneEntry(block);
-      if (Object.keys(parsed).length > 0) results.push(parsed);
+    const t = ta.value.trim();
+    if (t) allTexts.push(t);
+  }
+  const allText = allTexts.join('\n\n---\n\n');
+
+  if (!allText) {
+    resultEl.innerHTML = '<div style="color:#e53e3e;font-size:13px">テキストを入力してください。</div>';
+    return;
+  }
+
+  let results = [];
+
+  // ── Gemini APIで解析
+  if (apiKey) {
+    resultEl.innerHTML = '<div style="color:#2a4365;font-size:13px;padding:10px;background:#bee3f8;border-radius:6px;">🤖 AIが解析中...</div>';
+    try {
+      const geminiResults = await parseWithGemini(allText, bulkProduct);
+      if (geminiResults && geminiResults.length > 0) {
+        results = geminiResults;
+        // 一括品名で上書き
+        if (bulkProduct) results.forEach(r => { r.product = bulkProduct; });
+      } else {
+        resultEl.innerHTML = '<div style="color:#e53e3e;font-size:13px">AIから結果を取得できませんでした。</div>';
+        return;
+      }
+    } catch (e) {
+      resultEl.innerHTML = `<div style="color:#e53e3e;font-size:13px;padding:10px;background:#fed7d7;border-radius:6px;">⚠️ Gemini APIエラー: ${e.message}<br>ルールベースで再解析します...</div>`;
+      // フォールバック
+      results = fallbackParse(allTexts, bulkProduct);
     }
+  } else {
+    // ── ルールベースで解析（APIキーなし）
+    results = fallbackParse(allTexts, bulkProduct);
   }
 
   if (results.length === 0) {
-    document.getElementById('textParseResult').innerHTML = '<div style="color:#e53e3e;font-size:13px">内容を認識できませんでした。形式を確認してください。</div>';
+    resultEl.innerHTML = '<div style="color:#e53e3e;font-size:13px">内容を認識できませんでした。</div>';
     return;
   }
 
   // プレビュー表示
-  let html = `<div style="font-weight:600;font-size:13px;color:#22543d;margin-bottom:8px">✅ ${results.length}件を認識しました</div>`;
+  const method = apiKey ? '🤖 AI解析' : '⚡ 自動認識';
+  let html = `<div style="font-weight:600;font-size:13px;color:#22543d;margin-bottom:8px">${method}：${results.length}件を認識しました</div>`;
   results.forEach((r, i) => {
     const addr = [r.prefecture, r.city, r.address1, r.address2].filter(Boolean).join('');
+    const effectiveProduct = r.product || '';
     html += `<div class="parsed-item">
-      <div class="item-header">${i + 1}. ${r.name || '（名前不明）'} ${r.name_kana ? `（${r.name_kana}）` : ''}</div>
+      <div class="item-header">${i + 1}. ${r.name || '（名前不明）'}</div>
       <div class="item-fields">
         <span class="field-label">郵便番号</span><span class="${r.postal ? 'field-val' : 'field-missing'}">${r.postal || '⚠️ 未検出'}</span>
         <span class="field-label">住所</span><span class="${addr ? 'field-val' : 'field-missing'}">${addr || '⚠️ 未検出'}</span>
         <span class="field-label">電話番号</span><span class="field-val">${r.phone || '—'}</span>
-        ${r.product ? `<span class="field-label">品名</span><span class="field-val">${r.product}</span>` : ''}
+        <span class="field-label">品名</span><span class="${effectiveProduct ? 'field-val' : 'field-missing'}">${effectiveProduct || '—'}</span>
       </div>
     </div>`;
   });
-  document.getElementById('textParseResult').innerHTML = html;
+  resultEl.innerHTML = html;
 
-  // 変換用データを保存
   textParsedRows = results;
   document.getElementById('convertBtn').disabled = false;
   document.getElementById('detectionCard').style.display = 'none';
+}
+
+function fallbackParse(allTexts, bulkProduct) {
+  const results = [];
+  for (const text of allTexts) {
+    const blocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(b => b);
+    for (const block of blocks) {
+      const parsed = parseOneEntry(block);
+      if (Object.keys(parsed).length > 0) {
+        if (bulkProduct) parsed.product = bulkProduct;
+        results.push(parsed);
+      }
+    }
+  }
+  return results;
 }
 
 // ============================================================
@@ -654,7 +829,6 @@ function buildRows() {
     set('お届け先住所',              cleanAddress(opts.address || ''));
     set('お届け先アパートマンション名', cleanAddress(opts.address2 || ''));
     set('お届け先名',                cleanAddress(opts.name || ''));
-    set('お届け先名(ｶﾅ)',            opts.name_kana || '');
     set('ご依頼主電話番号',           sender.phone);
     set('ご依頼主郵便番号',           sender.postal);
     set('ご依頼主住所',              sender.address);
@@ -758,6 +932,13 @@ function toggleDate() {
 document.addEventListener('DOMContentLoaded', () => {
   setupDropZone();
   document.getElementById('fixedDate').value = new Date().toISOString().split('T')[0];
+  // 保存済みAPIキーを復元
+  const savedKey = localStorage.getItem('geminiApiKey') || '';
+  if (savedKey) {
+    document.getElementById('geminiApiKey').value = savedKey;
+    document.getElementById('aiStatus').textContent = '✅ 設定済み';
+    document.getElementById('aiStatus').style.color = '#22543d';
+  }
 });
 </script>
 </body>
