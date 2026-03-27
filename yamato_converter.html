@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ヤマト取込データ変換</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/encoding-japanese@2.1.0/encoding.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: #f0f4f8; color: #1a202c; min-height: 100vh; }
+
+    .header { background: #1a5276; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 20px; font-weight: 700; }
+    .header .logo { font-size: 28px; }
+
+    .container { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+
+    .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 16px; }
+    .card-title { font-size: 14px; font-weight: 600; color: #4a5568; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+
+    /* ドロップゾーン */
+    .drop-zone {
+      border: 2px dashed #cbd5e0; border-radius: 10px;
+      padding: 40px 20px; text-align: center; cursor: pointer;
+      transition: all 0.2s; background: #f7fafc;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: #3182ce; background: #ebf8ff; }
+    .drop-zone .icon { font-size: 48px; margin-bottom: 12px; }
+    .drop-zone .label { font-size: 16px; color: #4a5568; margin-bottom: 6px; }
+    .drop-zone .sub { font-size: 13px; color: #a0aec0; }
+    .drop-zone input { display: none; }
+
+    /* 検出結果 */
+    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+    .badge-green { background: #c6f6d5; color: #22543d; }
+    .badge-yellow { background: #fefcbf; color: #744210; }
+    .badge-red { background: #fed7d7; color: #742a2a; }
+    .badge-blue { background: #bee3f8; color: #2a4365; }
+
+    .mapping-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    .mapping-table th { background: #edf2f7; padding: 8px 12px; text-align: left; font-weight: 600; color: #4a5568; }
+    .mapping-table td { padding: 8px 12px; border-bottom: 1px solid #edf2f7; }
+    .mapping-table .arrow { color: #a0aec0; }
+    .mapping-table .col-name { color: #2b6cb0; font-weight: 500; }
+    .mapping-table .missing { color: #e53e3e; }
+
+    /* 設定 */
+    details { margin-top: 8px; }
+    summary { cursor: pointer; font-size: 14px; color: #4a5568; padding: 8px 0; user-select: none; }
+    summary:hover { color: #1a202c; }
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .field-group label { display: block; font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 4px; }
+    .field-group input { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 13px; }
+    .field-group input:focus { outline: none; border-color: #3182ce; }
+    .field-group.full { grid-column: 1 / -1; }
+
+    /* ボタン */
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; }
+    .btn-primary { background: #2c7a2c; color: white; }
+    .btn-primary:hover { background: #276227; }
+    .btn-primary:disabled { background: #a0aec0; cursor: not-allowed; }
+    .btn-secondary { background: #edf2f7; color: #4a5568; }
+    .btn-secondary:hover { background: #e2e8f0; }
+
+    .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+    /* ステータス */
+    .status-bar { padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-top: 12px; display: none; }
+    .status-success { background: #c6f6d5; color: #22543d; display: flex; align-items: center; gap: 8px; }
+    .status-error { background: #fed7d7; color: #742a2a; display: flex; align-items: center; gap: 8px; }
+    .status-info { background: #bee3f8; color: #2a4365; display: flex; align-items: center; gap: 8px; }
+
+    .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+    .stat { text-align: center; padding: 12px 16px; background: #f7fafc; border-radius: 8px; min-width: 80px; }
+    .stat .num { font-size: 24px; font-weight: 700; color: #2b6cb0; }
+    .stat .lbl { font-size: 12px; color: #718096; margin-top: 2px; }
+
+    /* 日付 */
+    .date-option { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .date-option label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+    input[type="date"] { padding: 6px 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 13px; }
+
+    .hidden { display: none; }
+    .result-section { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">📦</div>
+  <div>
+    <h1>ヤマト取込データ変換</h1>
+    <div style="font-size:12px;opacity:0.8">CSV → ヤマトB2クラウド 外部データから発行</div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ① ファイル選択 -->
+  <div class="card">
+    <div class="card-title">① CSVファイルを選択</div>
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div class="icon">📄</div>
+      <div class="label">ここにCSVをドラッグ＆ドロップ</div>
+      <div class="sub">またはクリックしてファイルを選択</div>
+      <input type="file" id="fileInput" accept=".csv">
+    </div>
+    <div id="fileInfo" class="hidden" style="margin-top:12px;padding:12px;background:#f7fafc;border-radius:8px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:24px">📄</span>
+      <div>
+        <div id="fileName" style="font-weight:600;font-size:14px"></div>
+        <div id="fileSize" style="font-size:12px;color:#718096"></div>
+      </div>
+      <button class="btn btn-secondary" style="margin-left:auto;padding:6px 12px;font-size:12px" onclick="resetFile()">✕ 変更</button>
+    </div>
+  </div>
+
+  <!-- ② 検出結果 -->
+  <div class="card result-section" id="detectionCard">
+    <div class="card-title">② 形式の検出結果</div>
+    <div id="detectionResult"></div>
+    <div class="stats" id="statsArea"></div>
+  </div>
+
+  <!-- ③ 設定 -->
+  <div class="card">
+    <div class="card-title">③ 送り主・請求先の設定</div>
+    <div class="settings-grid">
+      <div class="field-group">
+        <label>会社名（ご依頼主名）</label>
+        <input type="text" id="senderName" value="株式会社321">
+      </div>
+      <div class="field-group">
+        <label>電話番号</label>
+        <input type="text" id="senderPhone" value="0354565353">
+      </div>
+      <div class="field-group">
+        <label>郵便番号（ハイフンなし）</label>
+        <input type="text" id="senderPostal" value="1500041">
+      </div>
+      <div class="field-group">
+        <label>請求先顧客コード</label>
+        <input type="text" id="billingCode" value="0354565353">
+      </div>
+      <div class="field-group full">
+        <label>住所</label>
+        <input type="text" id="senderAddress" value="東京都渋谷区神南1-11-3">
+      </div>
+      <div class="field-group full">
+        <label>建物名・部屋番号</label>
+        <input type="text" id="senderApartment" value="PORTAL POINT SHIBUYA 2F">
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div class="card-title" style="margin-bottom:8px">出荷予定日</div>
+      <div class="date-option">
+        <label><input type="radio" name="dateMode" value="today" checked onchange="toggleDate()"> 今日の日付を自動使用</label>
+        <label><input type="radio" name="dateMode" value="fixed" onchange="toggleDate()"> 日付を指定</label>
+        <input type="date" id="fixedDate" class="hidden" value="">
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 変換・ダウンロード -->
+  <div class="card">
+    <div class="card-title">④ 変換してダウンロード</div>
+    <div class="actions">
+      <button class="btn btn-primary" id="convertBtn" onclick="convert()" disabled>
+        ⬇️ 変換してダウンロード
+      </button>
+    </div>
+    <div class="status-bar" id="statusBar"></div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// ヤマトテンプレート列定義（95列）
+// ============================================================
+const YAMATO_HEADERS = ["お客様管理番号","送り状種類","クール区分","伝票番号","出荷予定日","お届け予定日","配達時間帯","お届け先コード","お届け先電話番号","お届け先電話番号枝番","お届け先郵便番号","お届け先住所","お届け先アパートマンション名","お届け先会社・部門１","お届け先会社・部門２","お届け先名","お届け先名(ｶﾅ)","敬称","ご依頼主コード","ご依頼主電話番号","ご依頼主電話番号枝番","ご依頼主郵便番号","ご依頼主住所","ご依頼主アパートマンション","ご依頼主名","ご依頼主名(ｶﾅ)","品名コード１","品名１","品名コード２","品名２","荷扱い１","荷扱い２","記事","ｺﾚｸﾄ代金引換額（税込)","内消費税額等","止置き","営業所コード","発行枚数","個数口表示フラグ","請求先顧客コード","請求先分類コード","運賃管理番号","クロネコwebコレクトデータ登録","クロネコwebコレクト加盟店番号","クロネコwebコレクト申込受付番号１","クロネコwebコレクト申込受付番号２","クロネコwebコレクト申込受付番号３","お届け予定ｅメール利用区分","お届け予定ｅメールe-mailアドレス","入力機種","お届け予定ｅメールメッセージ","お届け完了ｅメール利用区分","お届け完了ｅメールe-mailアドレス","お届け完了ｅメールメッセージ","クロネコ収納代行利用区分","予備","収納代行請求金額(税込)","収納代行内消費税額等","収納代行請求先郵便番号","収納代行請求先住所","収納代行請求先住所（アパートマンション名）","収納代行請求先会社・部門名１","収納代行請求先会社・部門名２","収納代行請求先名(漢字)","収納代行請求先名(カナ)","収納代行問合せ先名(漢字)","収納代行問合せ先郵便番号","収納代行問合せ先住所","収納代行問合せ先住所（アパートマンション名）","収納代行問合せ先電話番号","収納代行管理番号","収納代行品名","収納代行備考","複数口くくりキー","検索キータイトル1","検索キー1","検索キータイトル2","検索キー2","検索キータイトル3","検索キー3","検索キータイトル4","検索キー4","検索キータイトル5","検索キー5","予備","予備","投函予定メール利用区分","投函予定メールe-mailアドレス","投函予定メールメッセージ","投函完了メール（お届け先宛）利用区分","投函完了メール（お届け先宛）e-mailアドレス","投函完了メール（お届け先宛）メールメッセージ","投函完了メール（ご依頼主宛）利用区分","投函完了メール（ご依頼主宛）e-mailアドレス","投函完了メール（ご依頼主宛）メールメッセージ"];
+
+// ============================================================
+// プロファイル設定
+// ============================================================
+const PROFILES = {
+  booth: {
+    label: "BOOTH受注CSV",
+    signature: ["注文番号", "注文状況", "郵便番号"],
+    order_no:   "注文番号",
+    postal:     "郵便番号",
+    prefecture: "都道府県",
+    address1:   "市区町村・丁目・番地",
+    address2:   "マンション・建物名・部屋番号",
+    name:       "氏名",
+    phone:      "電話番号",
+    product:    "__booth__",
+    filter_col: "注文状況",
+    filter_val: "支払済み",
+    item_mode:  "parentheses",
+  }
+};
+
+// ============================================================
+// 自動検出パターン
+// ============================================================
+const AUTO_DETECT = {
+  order_no:   ["注文番号","注文id","受注番号","受注id","管理番号","お客様番号","顧客番号","受付番号","伝票番号","order_no","order_id","id","番号"],
+  postal:     ["郵便番号","郵便","zip","postal","postcode","post_code","zipcode"],
+  prefecture: ["都道府県","prefecture","pref","state","province"],
+  address1:   ["市区町村","丁目","番地","住所1","住所①","住所一","配送先住所","送付先住所","お届け先住所","届け先住所","address1","address_1","addr1","住所"],
+  address2:   ["マンション","建物名","建物","部屋番号","部屋","号室","住所2","住所②","address2","address_2","addr2","apt","apartment"],
+  name:       ["氏名","お名前","名前","姓名","宛名","氏名（漢字）","送付先名","配送先名","お届け先名","届け先名","受取人名","受取人","name","recipient","recipient_name","customer_name","full_name","ship_to"],
+  phone:      ["電話番号","電話","tel","phone","telephone","mobile","携帯","送付先電話","配送先電話","お届け先電話"],
+  product:    ["商品名","品名","商品","アイテム","注文商品","item","item_name","product","product_name","goods"],
+};
+
+const FIELD_LABELS = {
+  order_no: "管理番号", postal: "郵便番号", prefecture: "都道府県",
+  address1: "住所1", address2: "住所2（建物等）", name: "氏名",
+  phone: "電話番号", product: "品名",
+};
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+function cleanAddress(s) {
+  return String(s || '').replace(/\u2015/g,'-').replace(/\uff0d/g,'-').trim();
+}
+function cleanPhone(s) {
+  return String(s || '').replace(/[^0-9]/g, '');
+}
+function extractItemNamesParentheses(text, maxLen=25) {
+  const matches = [...String(text).matchAll(/[（(]([^）)]+)[）)]/g)];
+  if (!matches.length) return String(text).slice(0,maxLen).trim();
+  const seen = new Set(), unique = [];
+  for (const m of matches) {
+    const n = m[1].trim();
+    if (n && !seen.has(n)) { seen.add(n); unique.push(n); }
+  }
+  return unique.join('、').slice(0, maxLen);
+}
+function splitAddressPrefecture(addr) {
+  const prefs = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
+  for (const p of prefs) {
+    if (String(addr).startsWith(p)) return [p, String(addr).slice(p.length)];
+  }
+  return ['', String(addr)];
+}
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// ============================================================
+// 状態
+// ============================================================
+let parsedData = null;
+let detectedProfile = null;
+let detectedMapping = null;
+
+// ============================================================
+// ファイル読み込み
+// ============================================================
+function setupDropZone() {
+  const dz = document.getElementById('dropZone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  document.getElementById('fileInput').addEventListener('change', e => {
+    if (e.target.files[0]) loadFile(e.target.files[0]);
+  });
+}
+
+function loadFile(file) {
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(1) + ' KB';
+  document.getElementById('fileInfo').style.display = 'flex';
+  document.getElementById('dropZone').style.display = 'none';
+
+  Papa.parse(file, {
+    header: true, skipEmptyLines: true,
+    encoding: 'UTF-8',
+    complete: result => {
+      parsedData = result;
+      analyzeData(result);
+    },
+    error: err => showStatus('error', 'CSVの読み込みに失敗しました: ' + err.message)
+  });
+}
+
+function resetFile() {
+  parsedData = null; detectedProfile = null; detectedMapping = null;
+  document.getElementById('dropZone').style.display = '';
+  document.getElementById('fileInfo').style.display = 'none';
+  document.getElementById('detectionCard').style.display = 'none';
+  document.getElementById('convertBtn').disabled = true;
+  document.getElementById('statusBar').style.display = 'none';
+  document.getElementById('fileInput').value = '';
+}
+
+// ============================================================
+// 形式検出＆解析
+// ============================================================
+function analyzeData(result) {
+  const headers = result.meta.fields || [];
+  let html = '';
+
+  // プロファイル検出
+  let foundProfile = null, foundProfileKey = null;
+  for (const [key, p] of Object.entries(PROFILES)) {
+    if (p.signature.every(s => headers.includes(s))) {
+      foundProfile = p; foundProfileKey = key; break;
+    }
+  }
+
+  if (foundProfile) {
+    detectedProfile = foundProfile;
+    detectedMapping = null;
+    html += `<span class="badge badge-green">✅ ${foundProfile.label}</span>`;
+    if (foundProfile.filter_col && foundProfile.filter_val) {
+      html += `<span style="font-size:13px;color:#4a5568;margin-left:10px">「${foundProfile.filter_val}」の注文のみ対象</span>`;
+    }
+  } else {
+    // 自動検出
+    const mapping = {};
+    const missing = [];
+    const headersLower = {};
+    headers.forEach(h => { headersLower[h.toLowerCase()] = h; });
+
+    for (const [field, kws] of Object.entries(AUTO_DETECT)) {
+      let found = null;
+      for (const kw of kws) {
+        const kwl = kw.toLowerCase();
+        if (headersLower[kwl]) { found = headersLower[kwl]; break; }
+        for (const [hl, horig] of Object.entries(headersLower)) {
+          if (hl.includes(kwl)) { found = horig; break; }
+        }
+        if (found) break;
+      }
+      if (found) mapping[field] = found;
+      else if (['order_no','postal','name','address1'].includes(field)) missing.push(field);
+    }
+
+    detectedMapping = mapping;
+    detectedProfile = null;
+
+    if (missing.length === 0) {
+      html += `<span class="badge badge-yellow">⚡ 未知の形式（列を自動検出）</span>`;
+    } else {
+      html += `<span class="badge badge-red">⚠️ 必須列が不足しています</span>`;
+    }
+
+    html += `<table class="mapping-table"><thead><tr><th>フィールド</th><th></th><th>検出した列</th></tr></thead><tbody>`;
+    for (const [field, label] of Object.entries(FIELD_LABELS)) {
+      const col = mapping[field];
+      if (col) {
+        html += `<tr><td>${label}</td><td class="arrow">←</td><td class="col-name">「${col}」</td></tr>`;
+      } else if (['order_no','postal','name','address1'].includes(field)) {
+        html += `<tr><td>${label}</td><td class="arrow">←</td><td class="missing">⚠️ 見つかりません</td></tr>`;
+      }
+    }
+    html += `</tbody></table>`;
+
+    if (missing.length > 0) {
+      html += `<div style="margin-top:12px;padding:10px;background:#fff5f5;border-radius:6px;font-size:13px;color:#742a2a">見つからない列: ${missing.map(f=>FIELD_LABELS[f]).join('、')}</div>`;
+    }
+  }
+
+  document.getElementById('detectionResult').innerHTML = html;
+  document.getElementById('detectionCard').style.display = 'block';
+
+  // 統計
+  const total = result.data.length;
+  let target = 0;
+  const p = detectedProfile;
+  if (p && p.filter_col && p.filter_val) {
+    target = result.data.filter(r => r[p.filter_col] === p.filter_val && r[p.postal]).length;
+  } else {
+    const postalCol = detectedMapping?.postal;
+    target = postalCol ? result.data.filter(r => r[postalCol]).length : total;
+  }
+  document.getElementById('statsArea').innerHTML = `
+    <div class="stat"><div class="num">${total}</div><div class="lbl">総件数</div></div>
+    <div class="stat"><div class="num" style="color:#276227">${target}</div><div class="lbl">変換対象</div></div>
+    <div class="stat"><div class="num" style="color:#744210">${total - target}</div><div class="lbl">スキップ</div></div>
+  `;
+
+  const canConvert = !detectedMapping || !['order_no','postal','name','address1'].some(f => !detectedMapping[f]);
+  document.getElementById('convertBtn').disabled = !canConvert;
+}
+
+// ============================================================
+// 変換＆ダウンロード
+// ============================================================
+function convert() {
+  if (!parsedData) return;
+  showStatus('info', '変換中...');
+
+  try {
+    const rows = buildRows();
+    const csvText = [YAMATO_HEADERS, ...rows].map(r =>
+      r.map(c => /[,"\n]/.test(String(c)) ? `"${String(c).replace(/"/g,'""')}"` : String(c)).join(',')
+    ).join('\r\n');
+
+    // cp932エンコード
+    let blob;
+    if (typeof Encoding !== 'undefined') {
+      const utf8Array = Encoding.stringToCode(csvText);
+      const sjisArray = Encoding.convert(utf8Array, { to: 'SJIS', from: 'UNICODE' });
+      blob = new Blob([new Uint8Array(sjisArray)], { type: 'text/csv' });
+    } else {
+      // fallback: UTF-8（encoding-japaneseが読めない場合）
+      blob = new Blob(['\uFEFF' + csvText], { type: 'text/csv;charset=utf-8' });
+      showStatus('error', '⚠️ Shift-JIS変換ライブラリが読み込めませんでした。UTF-8で出力します（要インターネット接続）');
+      downloadBlob(blob, rows.length);
+      return;
+    }
+
+    downloadBlob(blob, rows.length);
+    showStatus('success', `✅ ${rows.length}件のヤマト取込データを作成しました！`);
+  } catch (e) {
+    showStatus('error', 'エラー: ' + e.message);
+    console.error(e);
+  }
+}
+
+function downloadBlob(blob, count) {
+  const now = new Date();
+  const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `yamato_import_${ts}.csv`;
+  a.click();
+}
+
+function buildRows() {
+  const data = parsedData.data;
+  const profile = detectedProfile;
+  const mapping = detectedMapping;
+
+  const dateMode = document.querySelector('input[name="dateMode"]:checked').value;
+  const shipDate = dateMode === 'fixed' ? document.getElementById('fixedDate').value.replace(/-/g, '/') : today();
+
+  const sender = {
+    name:      document.getElementById('senderName').value,
+    phone:     document.getElementById('senderPhone').value,
+    postal:    document.getElementById('senderPostal').value,
+    address:   document.getElementById('senderAddress').value,
+    apartment: document.getElementById('senderApartment').value,
+    billing:   document.getElementById('billingCode').value,
+  };
+
+  const rows = [];
+
+  for (const row of data) {
+    // フィルタ
+    if (profile?.filter_col && profile?.filter_val) {
+      if (row[profile.filter_col] !== profile.filter_val) continue;
+    }
+
+    const get = field => {
+      const col = profile ? profile[field] : mapping?.[field];
+      if (!col || col.startsWith('__')) return '';
+      return String(row[col] || '').trim();
+    };
+
+    const postal = get('postal').replace(/-/g, '');
+    if (!postal) continue;
+
+    // 都道府県 + 住所
+    let pref = get('prefecture');
+    let addr1 = get('address1');
+    if (pref && addr1.startsWith(pref)) addr1 = addr1.slice(pref.length);
+    if (!pref) [pref, addr1] = splitAddressPrefecture(addr1);
+
+    // 品名
+    let itemNames = '';
+    if (profile?.product === '__booth__') {
+      const parts = parsedData.meta.fields
+        .filter(h => h.includes('商品名') || h.includes('商品ID'))
+        .map(h => row[h] || '').filter(Boolean);
+      itemNames = extractItemNamesParentheses(parts.join(' / '));
+    } else if (profile?.item_mode === 'parentheses') {
+      itemNames = extractItemNamesParentheses(get('product'));
+    } else {
+      itemNames = (get('product') || '').slice(0, 25);
+    }
+
+    const r = new Array(YAMATO_HEADERS.length).fill('');
+    const set = (name, val) => {
+      const i = YAMATO_HEADERS.indexOf(name);
+      if (i >= 0) r[i] = val;
+    };
+
+    set('お客様管理番号',           get('order_no'));
+    set('送り状種類',               '0');
+    set('出荷予定日',               shipDate);
+    set('お届け先電話番号',          cleanPhone(get('phone')));
+    set('お届け先郵便番号',          postal);
+    set('お届け先住所',             cleanAddress(pref + addr1));
+    set('お届け先アパートマンション名', cleanAddress(get('address2')));
+    set('お届け先名',               cleanAddress(get('name')));
+    set('ご依頼主電話番号',          sender.phone);
+    set('ご依頼主郵便番号',          sender.postal);
+    set('ご依頼主住所',             sender.address);
+    set('ご依頼主アパートマンション',  sender.apartment);
+    set('ご依頼主名',               sender.name);
+    set('品名１',                   cleanAddress(itemNames));
+    set('請求先顧客コード',          sender.billing);
+    set('請求先分類コード',          '001');
+
+    rows.push(r);
+  }
+  return rows;
+}
+
+// ============================================================
+// UI ヘルパー
+// ============================================================
+function showStatus(type, msg) {
+  const bar = document.getElementById('statusBar');
+  bar.className = 'status-bar status-' + type;
+  bar.textContent = msg;
+  bar.style.display = 'flex';
+}
+function toggleDate() {
+  const mode = document.querySelector('input[name="dateMode"]:checked').value;
+  document.getElementById('fixedDate').classList.toggle('hidden', mode !== 'fixed');
+}
+
+// 初期化
+document.addEventListener('DOMContentLoaded', () => {
+  setupDropZone();
+  document.getElementById('fixedDate').value = new Date().toISOString().split('T')[0];
+});
+</script>
+</body>
+</html>
