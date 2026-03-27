@@ -83,6 +83,28 @@
 
     .hidden { display: none; }
     .result-section { display: none; }
+
+    /* モード切替 */
+    .mode-toggle { display: flex; gap: 0; margin-bottom: 16px; border: 1px solid #cbd5e0; border-radius: 8px; overflow: hidden; }
+    .mode-btn { flex: 1; padding: 10px; border: none; background: white; color: #4a5568; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .mode-btn.active { background: #1a5276; color: white; }
+    .mode-btn:hover:not(.active) { background: #edf2f7; }
+
+    /* テキスト貼り付けエリア */
+    .paste-area { width: 100%; min-height: 200px; padding: 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.6; }
+    .paste-area:focus { outline: none; border-color: #3182ce; }
+    .paste-area::placeholder { color: #a0aec0; }
+
+    /* テキスト解析プレビュー */
+    .parsed-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .parsed-item { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 13px; }
+    .parsed-item .item-header { font-weight: 700; margin-bottom: 6px; color: #2b6cb0; }
+    .parsed-item .item-fields { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
+    .parsed-item .field-label { color: #718096; }
+    .parsed-item .field-val { color: #1a202c; font-weight: 500; }
+    .parsed-item .field-missing { color: #e53e3e; }
+    .add-entry-btn { border: 2px dashed #cbd5e0; background: none; border-radius: 8px; padding: 10px; width: 100%; cursor: pointer; color: #718096; font-size: 13px; margin-top: 8px; }
+    .add-entry-btn:hover { border-color: #3182ce; color: #3182ce; background: #ebf8ff; }
   </style>
 </head>
 <body>
@@ -97,22 +119,59 @@
 
 <div class="container">
 
-  <!-- ① ファイル選択 -->
+  <!-- ① 入力モード選択 -->
   <div class="card">
-    <div class="card-title">① CSVファイルを選択</div>
-    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-      <div class="icon">📄</div>
-      <div class="label">ここにCSVをドラッグ＆ドロップ</div>
-      <div class="sub">またはクリックしてファイルを選択</div>
-      <input type="file" id="fileInput" accept=".csv">
+    <div class="card-title">① 入力方法を選択</div>
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="modeCsvBtn" onclick="switchMode('csv')">📄 CSVファイル</button>
+      <button class="mode-btn" id="modeTextBtn" onclick="switchMode('text')">📋 テキスト貼り付け</button>
     </div>
-    <div id="fileInfo" class="hidden" style="margin-top:12px;padding:12px;background:#f7fafc;border-radius:8px;display:flex;align-items:center;gap:10px;">
-      <span style="font-size:24px">📄</span>
-      <div>
-        <div id="fileName" style="font-weight:600;font-size:14px"></div>
-        <div id="fileSize" style="font-size:12px;color:#718096"></div>
+
+    <!-- CSVモード -->
+    <div id="csvMode">
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div class="icon">📄</div>
+        <div class="label">ここにCSVをドラッグ＆ドロップ</div>
+        <div class="sub">またはクリックしてファイルを選択</div>
+        <input type="file" id="fileInput" accept=".csv">
       </div>
-      <button class="btn btn-secondary" style="margin-left:auto;padding:6px 12px;font-size:12px" onclick="resetFile()">✕ 変更</button>
+      <div id="fileInfo" class="hidden" style="margin-top:12px;padding:12px;background:#f7fafc;border-radius:8px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:24px">📄</span>
+        <div>
+          <div id="fileName" style="font-weight:600;font-size:14px"></div>
+          <div id="fileSize" style="font-size:12px;color:#718096"></div>
+        </div>
+        <button class="btn btn-secondary" style="margin-left:auto;padding:6px 12px;font-size:12px" onclick="resetFile()">✕ 変更</button>
+      </div>
+    </div>
+
+    <!-- テキスト貼り付けモード -->
+    <div id="textMode" class="hidden">
+      <div style="font-size:13px;color:#718096;margin-bottom:8px">
+        顧客情報をそのまま貼り付けてください。複数人いる場合は<strong>空行で区切って</strong>貼り付けるとまとめて変換できます。
+      </div>
+      <div id="textEntries">
+        <div class="parsed-item" style="padding:0;border:none;background:none;">
+          <textarea class="paste-area" id="pasteInput0" placeholder="例：
+本名
+菅原○○
+郵便番号
+006-0819
+都道府県
+北海道
+市町村区
+○○区○○
+町域・番地等
+○○-○○
+電話番号
+080-1234-5678"></textarea>
+        </div>
+      </div>
+      <button class="add-entry-btn" onclick="addTextEntry()">＋ もう1人追加</button>
+      <div style="margin-top:12px;">
+        <button class="btn btn-secondary" onclick="parseTextEntries()" style="padding:8px 20px;font-size:13px;">🔍 内容を確認する</button>
+      </div>
+      <div id="textParseResult" class="parsed-list"></div>
     </div>
   </div>
 
@@ -259,6 +318,137 @@ function today() {
 let parsedData = null;
 let detectedProfile = null;
 let detectedMapping = null;
+let currentMode = 'csv'; // 'csv' or 'text'
+let textParsedRows = null; // テキストモードで解析した行データ
+let textEntryCount = 1;
+
+// ============================================================
+// モード切替
+// ============================================================
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('csvMode').classList.toggle('hidden', mode !== 'csv');
+  document.getElementById('textMode').classList.toggle('hidden', mode !== 'text');
+  document.getElementById('modeCsvBtn').classList.toggle('active', mode === 'csv');
+  document.getElementById('modeTextBtn').classList.toggle('active', mode === 'text');
+  document.getElementById('detectionCard').style.display = 'none';
+  document.getElementById('convertBtn').disabled = true;
+  textParsedRows = null;
+  parsedData = null;
+}
+
+// ============================================================
+// テキスト貼り付けモード
+// ============================================================
+
+// ラベル→フィールド名のマッピング
+const TEXT_LABEL_MAP = {
+  name:       ['本名','氏名','お名前','名前','姓名','宛名','受取人','氏名（漢字）','お届け先名'],
+  name_kana:  ['フリガナ','ふりがな','ｶﾅ','カナ','よみがな'],
+  postal:     ['郵便番号','郵便','zip','postal'],
+  prefecture: ['都道府県'],
+  city:       ['市町村区','市区町村','市区郡','区市町村','市'],
+  address1:   ['町域・番地等','町域','番地','丁目','住所','番地・建物名等'],
+  address2:   ['建物名','マンション','アパート','部屋番号','号室','建物名・部屋番号','マンション・建物名・部屋番号'],
+  phone:      ['電話番号','電話','TEL','tel','携帯番号','携帯'],
+  email:      ['メールアドレス','メール','email','e-mail'],
+  product:    ['商品名','品名','商品','注文商品'],
+};
+
+function parseOneEntry(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
+  const result = {};
+  // ラベル行 → 次の行が値、のパターンで解析
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const nextLine = lines[i + 1] || '';
+    // このlineがラベルかどうか判定
+    let matched = false;
+    for (const [field, labels] of Object.entries(TEXT_LABEL_MAP)) {
+      if (labels.some(l => line === l || line.startsWith(l + '：') || line.startsWith(l + ':'))) {
+        // コロン区切りで値が同じ行にある場合
+        const colonIdx = line.indexOf('：') >= 0 ? line.indexOf('：') : line.indexOf(':');
+        if (colonIdx >= 0) {
+          const val = line.slice(colonIdx + 1).trim();
+          if (val) { result[field] = val; matched = true; i--; break; }
+        }
+        // 次の行が別ラベルでなければ値として使う
+        const isNextLabel = nextLine && Object.values(TEXT_LABEL_MAP).flat()
+          .some(l => nextLine === l || nextLine.startsWith(l + '：') || nextLine.startsWith(l + ':'));
+        if (!isNextLabel && nextLine) {
+          result[field] = nextLine;
+          i++; // 値の行をスキップ
+        }
+        matched = true;
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+function addTextEntry() {
+  const container = document.getElementById('textEntries');
+  const idx = textEntryCount++;
+  const div = document.createElement('div');
+  div.id = `textEntry${idx}`;
+  div.style.marginTop = '8px';
+  div.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <span style="font-size:12px;color:#718096;font-weight:600">${idx + 1}人目</span>
+      <button onclick="removeTextEntry(${idx})" style="border:none;background:none;color:#e53e3e;cursor:pointer;font-size:12px">✕ 削除</button>
+    </div>
+    <textarea class="paste-area" id="pasteInput${idx}" placeholder="2人目の情報を貼り付け..." style="min-height:120px"></textarea>
+  `;
+  container.appendChild(div);
+}
+
+function removeTextEntry(idx) {
+  const el = document.getElementById(`textEntry${idx}`);
+  if (el) el.remove();
+}
+
+function parseTextEntries() {
+  const results = [];
+  // 全テキストエリアを取得
+  const textareas = document.querySelectorAll('[id^="pasteInput"]');
+  for (const ta of textareas) {
+    const text = ta.value.trim();
+    if (!text) continue;
+    // 空行で区切って複数エントリに分割
+    const blocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(b => b);
+    for (const block of blocks) {
+      const parsed = parseOneEntry(block);
+      if (Object.keys(parsed).length > 0) results.push(parsed);
+    }
+  }
+
+  if (results.length === 0) {
+    document.getElementById('textParseResult').innerHTML = '<div style="color:#e53e3e;font-size:13px">内容を認識できませんでした。形式を確認してください。</div>';
+    return;
+  }
+
+  // プレビュー表示
+  let html = `<div style="font-weight:600;font-size:13px;color:#22543d;margin-bottom:8px">✅ ${results.length}件を認識しました</div>`;
+  results.forEach((r, i) => {
+    const addr = [r.prefecture, r.city, r.address1, r.address2].filter(Boolean).join('');
+    html += `<div class="parsed-item">
+      <div class="item-header">${i + 1}. ${r.name || '（名前不明）'} ${r.name_kana ? `（${r.name_kana}）` : ''}</div>
+      <div class="item-fields">
+        <span class="field-label">郵便番号</span><span class="${r.postal ? 'field-val' : 'field-missing'}">${r.postal || '⚠️ 未検出'}</span>
+        <span class="field-label">住所</span><span class="${addr ? 'field-val' : 'field-missing'}">${addr || '⚠️ 未検出'}</span>
+        <span class="field-label">電話番号</span><span class="field-val">${r.phone || '—'}</span>
+        ${r.product ? `<span class="field-label">品名</span><span class="field-val">${r.product}</span>` : ''}
+      </div>
+    </div>`;
+  });
+  document.getElementById('textParseResult').innerHTML = html;
+
+  // 変換用データを保存
+  textParsedRows = results;
+  document.getElementById('convertBtn').disabled = false;
+  document.getElementById('detectionCard').style.display = 'none';
+}
 
 // ============================================================
 // ファイル読み込み
@@ -399,7 +589,8 @@ function analyzeData(result) {
 // 変換＆ダウンロード
 // ============================================================
 function convert() {
-  if (!parsedData) return;
+  if (currentMode === 'text' && !textParsedRows) return;
+  if (currentMode === 'csv' && !parsedData) return;
   showStatus('info', '変換中...');
 
   try {
@@ -440,10 +631,6 @@ function downloadBlob(blob, count) {
 }
 
 function buildRows() {
-  const data = parsedData.data;
-  const profile = detectedProfile;
-  const mapping = detectedMapping;
-
   const dateMode = document.querySelector('input[name="dateMode"]:checked').value;
   const shipDate = dateMode === 'fixed' ? document.getElementById('fixedDate').value.replace(/-/g, '/') : today();
 
@@ -456,10 +643,60 @@ function buildRows() {
     billing:   document.getElementById('billingCode').value,
   };
 
+  const makeRow = (opts) => {
+    const r = new Array(YAMATO_HEADERS.length).fill('');
+    const set = (name, val) => { const i = YAMATO_HEADERS.indexOf(name); if (i >= 0) r[i] = val; };
+    set('お客様管理番号',            opts.order_no || '');
+    set('送り状種類',                '0');
+    set('出荷予定日',                shipDate);
+    set('お届け先電話番号',           cleanPhone(opts.phone || ''));
+    set('お届け先郵便番号',           (opts.postal || '').replace(/-/g, ''));
+    set('お届け先住所',              cleanAddress(opts.address || ''));
+    set('お届け先アパートマンション名', cleanAddress(opts.address2 || ''));
+    set('お届け先名',                cleanAddress(opts.name || ''));
+    set('お届け先名(ｶﾅ)',            opts.name_kana || '');
+    set('ご依頼主電話番号',           sender.phone);
+    set('ご依頼主郵便番号',           sender.postal);
+    set('ご依頼主住所',              sender.address);
+    set('ご依頼主アパートマンション',   sender.apartment);
+    set('ご依頼主名',                sender.name);
+    set('品名１',                    cleanAddress(opts.product || ''));
+    set('請求先顧客コード',           sender.billing);
+    set('請求先分類コード',           '001');
+    return r;
+  };
+
   const rows = [];
 
+  // ── テキストモード ──
+  if (currentMode === 'text') {
+    for (const entry of (textParsedRows || [])) {
+      const postal = (entry.postal || '').replace(/-/g, '');
+      if (!postal) continue;
+      const pref = entry.prefecture || '';
+      const city = entry.city || '';
+      const addr1 = entry.address1 || '';
+      const addr2 = entry.address2 || '';
+      rows.push(makeRow({
+        order_no:  '',
+        name:      entry.name || '',
+        name_kana: entry.name_kana || '',
+        postal:    postal,
+        address:   cleanAddress(pref + city + addr1),
+        address2:  addr2,
+        phone:     entry.phone || '',
+        product:   (entry.product || '').slice(0, 25),
+      }));
+    }
+    return rows;
+  }
+
+  // ── CSVモード ──
+  const data = parsedData.data;
+  const profile = detectedProfile;
+  const mapping = detectedMapping;
+
   for (const row of data) {
-    // フィルタ
     if (profile?.filter_col && profile?.filter_val) {
       if (row[profile.filter_col] !== profile.filter_val) continue;
     }
@@ -473,13 +710,11 @@ function buildRows() {
     const postal = get('postal').replace(/-/g, '');
     if (!postal) continue;
 
-    // 都道府県 + 住所
     let pref = get('prefecture');
     let addr1 = get('address1');
     if (pref && addr1.startsWith(pref)) addr1 = addr1.slice(pref.length);
     if (!pref) [pref, addr1] = splitAddressPrefecture(addr1);
 
-    // 品名
     let itemNames = '';
     if (profile?.product === '__booth__') {
       const parts = parsedData.meta.fields
@@ -492,30 +727,15 @@ function buildRows() {
       itemNames = (get('product') || '').slice(0, 25);
     }
 
-    const r = new Array(YAMATO_HEADERS.length).fill('');
-    const set = (name, val) => {
-      const i = YAMATO_HEADERS.indexOf(name);
-      if (i >= 0) r[i] = val;
-    };
-
-    set('お客様管理番号',           get('order_no'));
-    set('送り状種類',               '0');
-    set('出荷予定日',               shipDate);
-    set('お届け先電話番号',          cleanPhone(get('phone')));
-    set('お届け先郵便番号',          postal);
-    set('お届け先住所',             cleanAddress(pref + addr1));
-    set('お届け先アパートマンション名', cleanAddress(get('address2')));
-    set('お届け先名',               cleanAddress(get('name')));
-    set('ご依頼主電話番号',          sender.phone);
-    set('ご依頼主郵便番号',          sender.postal);
-    set('ご依頼主住所',             sender.address);
-    set('ご依頼主アパートマンション',  sender.apartment);
-    set('ご依頼主名',               sender.name);
-    set('品名１',                   cleanAddress(itemNames));
-    set('請求先顧客コード',          sender.billing);
-    set('請求先分類コード',          '001');
-
-    rows.push(r);
+    rows.push(makeRow({
+      order_no: get('order_no'),
+      name:     get('name'),
+      postal:   postal,
+      address:  cleanAddress(pref + addr1),
+      address2: get('address2'),
+      phone:    get('phone'),
+      product:  itemNames,
+    }));
   }
   return rows;
 }
