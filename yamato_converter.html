@@ -335,7 +335,7 @@ function cleanAddress(s) {
 function cleanPhone(s) {
   return String(s || '').replace(/[^0-9]/g, '');
 }
-function extractItemNamesParentheses(text, maxLen=25) {
+function extractItemNamesParentheses(text, maxLen=50) {
   const matches = [...String(text).matchAll(/[（(]([^）)]+)[）)]/g)];
   if (!matches.length) return String(text).slice(0,maxLen).trim();
   const seen = new Set(), unique = [];
@@ -344,6 +344,26 @@ function extractItemNamesParentheses(text, maxLen=25) {
     if (n && !seen.has(n)) { seen.add(n); unique.push(n); }
   }
   return unique.join('、').slice(0, maxLen);
+}
+function splitProductName(text, maxLen=25) {
+  const value = cleanAddress(text).slice(0, maxLen * 2);
+  if (value.length <= maxLen) return [value, ''];
+
+  const firstWindow = value.slice(0, maxLen);
+  const separators = [' ', '　', '、', '／', '/', '・', '・', '＋', '+', '＆', '&', '（', '('];
+  let splitAt = -1;
+  for (let i = firstWindow.length - 1; i >= Math.floor(maxLen * 0.6); i--) {
+    if (separators.includes(firstWindow[i])) {
+      splitAt = i + (['、', '／', '/', '・', '・', '＋', '+', '＆', '&'].includes(firstWindow[i]) ? 1 : 0);
+      break;
+    }
+  }
+  if (splitAt < 1) splitAt = maxLen;
+
+  return [
+    value.slice(0, splitAt).trim(),
+    value.slice(splitAt).trim().slice(0, maxLen),
+  ];
 }
 function splitAddressPrefecture(addr) {
   const prefs = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
@@ -806,6 +826,7 @@ function buildRows() {
   const makeRow = (opts) => {
     const r = new Array(YAMATO_HEADERS.length).fill('');
     const set = (name, val) => { const i = YAMATO_HEADERS.indexOf(name); if (i >= 0) r[i] = val; };
+    const [product1, product2] = splitProductName(opts.product || '');
     set('お客様管理番号',            opts.order_no || '');
     set('送り状種類',                document.getElementById('invoiceType').value || '0');
     set('出荷予定日',                shipDate);
@@ -819,7 +840,8 @@ function buildRows() {
     set('ご依頼主住所',              sender.address);
     set('ご依頼主アパートマンション',   sender.apartment);
     set('ご依頼主名',                sender.name);
-    set('品名１',                    cleanAddress(opts.product || ''));
+    set('品名１',                    product1);
+    set('品名２',                    product2);
     set('請求先顧客コード',           sender.billing);
     set('請求先分類コード',           '001');
     return r;
@@ -844,7 +866,7 @@ function buildRows() {
         address:   cleanAddress(pref + city + addr1),
         address2:  addr2,
         phone:     entry.phone || '',
-        product:   (entry.product || '').slice(0, 25),
+        product:   entry.product || '',
       }));
     }
     return rows;
@@ -883,7 +905,7 @@ function buildRows() {
     } else if (profile?.item_mode === 'parentheses') {
       itemNames = extractItemNamesParentheses(get('product'));
     } else {
-      itemNames = (get('product') || '').slice(0, 25);
+      itemNames = get('product') || '';
     }
 
     rows.push(makeRow({
